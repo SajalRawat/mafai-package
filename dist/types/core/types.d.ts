@@ -28,5 +28,6 @@ export type MafaiConfig = {
     debug?: boolean;
     apiKey?: string;
     modelName?: string;
+    engineUrl?: string;
 };
 //# sourceMappingURL=types.d.ts.map

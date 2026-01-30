@@ -31,4 +31,5 @@ export type MafaiConfig = {
     debug?: boolean;
     apiKey?: string;
     modelName?: string;
+    engineUrl?: string;
 };

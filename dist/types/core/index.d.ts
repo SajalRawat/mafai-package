@@ -1,12 +1,13 @@
 import { UnifiedContext, MafaiConfig } from './types.js';
 export declare class MafaiCore {
     private config;
+    private engineUrl;
     constructor(config?: MafaiConfig);
     /**
      * Main processing logic.
-     * This is where the middleware logic resides.
-     * It is framework-agnostic and operates on the UnifiedContext.
+     * Framework-agnostic, Fail-open by default.
      */
     process(ctx: UnifiedContext): Promise<void>;
+    private blockRequest;
 }
 //# sourceMappingURL=index.d.ts.map
