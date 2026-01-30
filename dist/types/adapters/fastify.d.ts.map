@@ -1,0 +1,1 @@
+{"version":3,"file":"fastify.d.ts","sourceRoot":"","sources":["../../../src/adapters/fastify.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,cAAc,EAAE,YAAY,EAAE,MAAM,SAAS,CAAC;AAE5D,OAAO,EAAkB,WAAW,EAAE,MAAM,kBAAkB,CAAC;AAE/D;;;;GAIG;AACH,eAAO,MAAM,YAAY,GAAI,SAAS,WAAW,MAGrC,KAAK,cAAc,EAAE,OAAO,YAAY,EAAE,MAAM,CAAC,GAAG,CAAC,EAAE,GAAG,KAAK,IAAI,SAwC9E,CAAC"}
