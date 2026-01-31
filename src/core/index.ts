@@ -42,25 +42,19 @@ export class MafaiCore {
             const { method, url, headers, ip, body } = ctx.req;
             const cleanHeaders = { ...headers }; // Basic sanitization/copy
 
-            // 3. GET Request Body Handling (Regex-based)
+            // 3. GET Request Body Handling
             const isGet = /^(GET)$/i.test(method);
 
-            let payloadBody: any = undefined;
-            if (!isGet) {
-                // For non-GET, include body
-                payloadBody = typeof body === 'object' ? JSON.stringify(body) : String(body || '');
-            }
-
             // 4. Construct Engine Payload
-            // Note: config uses apiKey, but engine expects token
             const payload = {
                 token: this.config.apiKey || '',
-                req: {
+                request: {
                     ip,
                     method,
+                    path: url,
                     url,
                     headers: cleanHeaders,
-                    body: payloadBody
+                    body: ctx.req.body // Pass original body object, let engine handle it or JSON.stringify here
                 }
             };
 

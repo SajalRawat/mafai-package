@@ -24,16 +24,7 @@ class MafaiCore {
      * Framework-agnostic, Fail-open by default.
      */
     async process(ctx) {
-        // Fail-Open/Closed helper
-        const handleFailure = (errorMsg, internalError) => {
-            if (this.config.debug) {
-                console.error(`[Mafai] ${errorMsg}:`, internalError || '');
-            }
-            if (this.config.failStrategy === 'closed') {
-                return this.blockRequest(ctx, 'Engine Unavailable', 'The security engine is currently unreachable. Access is restricted for safety.');
-            }
-            return ctx.next();
-        };
+        // Fail-Open: Wrap everything in a try-catch
         try {
             // 1. Check if enabled
             if (this.config.enabled === false) {
@@ -42,77 +33,69 @@ class MafaiCore {
                 return ctx.next();
             }
             // 2. Normalize Request
-            const { method, url, headers, ip } = ctx.req;
-            // 3. Build GET Query Params (Headers summary: count + common keys)
-            const headerKeys = Object.keys(headers);
-            const headersSummary = `${headerKeys.length} headers (${headerKeys.slice(0, 3).join(',')}...)`;
-            const queryParams = new URLSearchParams({
+            const { method, url, headers, ip, body } = ctx.req;
+            const cleanHeaders = { ...headers }; // Basic sanitization/copy
+            // 3. GET Request Body Handling
+            const isGet = /^(GET)$/i.test(method);
+            // 4. Construct Engine Payload
+            const payload = {
                 token: this.config.apiKey || '',
-                ip: ip || 'unknown',
-                method,
-                path: url,
-                headers: headersSummary
-            });
-            const engineEndpoint = `${this.engineUrl}?${queryParams.toString()}`;
+                request: {
+                    ip,
+                    method,
+                    path: url,
+                    url,
+                    headers: cleanHeaders,
+                    body: ctx.req.body // Pass original body object, let engine handle it or JSON.stringify here
+                }
+            };
             if (this.config.debug) {
-                console.log(`[Mafai] Verifying request via GET: ${engineEndpoint}`);
+                console.log('[Mafai] Sending payload to engine:', JSON.stringify(payload, null, 2));
             }
-            // 4. Send to Engine with Timeout
+            // 5. Send to Engine with Timeout
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
-            let response;
-            try {
-                response = await fetch(engineEndpoint, {
-                    method: 'GET',
-                    signal: controller.signal
-                });
-            }
-            catch (err) {
-                clearTimeout(timeoutId);
-                return handleFailure('Engine Communication Error', err);
-            }
+            const response = await fetch(this.engineUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
             clearTimeout(timeoutId);
             if (!response.ok) {
-                return handleFailure(`Engine returned status ${response.status}`);
-            }
-            let data;
-            try {
-                data = await response.json();
-            }
-            catch (err) {
-                return handleFailure('Invalid JSON from Engine', err);
-            }
-            // 5. Enforce Decision
-            const isAllowed = (data === null || data === void 0 ? void 0 : data.allow) === true;
-            const reason = data === null || data === void 0 ? void 0 : data.reason;
-            if (!isAllowed) {
                 if (this.config.debug)
-                    console.warn(`[Mafai] Request Blocked. Reason: ${reason || 'Decision Engine'}`);
-                let title = 'Request Blocked';
-                let message = 'Your request was flagged as potentially malicious and has been blocked by the firewall security policy.';
-                if (reason === 'invalid_token') {
-                    title = 'Authentication Error';
-                    message = 'The application token provided is invalid or expired. Access denied.';
-                }
-                return this.blockRequest(ctx, title, message);
+                    console.warn(`[Mafai] Engine returned ${response.status}. Failing open.`);
+                return ctx.next();
             }
-            // Implicitly allowed
+            const decisionData = await response.json();
+            const decision = decisionData === null || decisionData === void 0 ? void 0 : decisionData.decision; // Expecting { decision: "YES" | "NO" }
+            // 6. Enforce Decision
+            if (decision === 'NO') {
+                if (this.config.debug)
+                    console.warn('[Mafai] Request Blocked by Engine.');
+                return this.blockRequest(ctx);
+            }
+            // Implicitly decision === 'YES' or unknown
             if (this.config.debug)
                 console.log('[Mafai] Request Allowed.');
             return ctx.next();
         }
         catch (error) {
-            return handleFailure('Unexpected Internal Error', error);
+            // FAIL-OPEN GUARANTEE
+            if (this.config.debug) {
+                console.error('[Mafai] Internal Error (Fail-Open):', error);
+            }
+            return ctx.next();
         }
     }
-    blockRequest(ctx, title, message) {
+    blockRequest(ctx) {
         const html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title} | MAF</title>
+    <title>Request Blocked | MAF</title>
     <style>
         :root {
             --bg-color: #f8f9fa;
@@ -181,8 +164,10 @@ class MafaiCore {
         <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
-        <h1>${title}</h1>
-        <p>${message}</p>
+        <h1>Request Blocked</h1>
+        <p>
+            Your request was flagged as potentially malicious and has been blocked by the firewall security policy.
+        </p>
         <div class="divider"></div>
         <div class="footer">
             Secured by <span class="brand">MAF Middleware</span>

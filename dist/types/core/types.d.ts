@@ -29,6 +29,5 @@ export type MafaiConfig = {
     apiKey?: string;
     modelName?: string;
     engineUrl?: string;
-    failStrategy?: 'open' | 'closed';
 };
 //# sourceMappingURL=types.d.ts.map
