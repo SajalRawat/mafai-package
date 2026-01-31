@@ -1,5 +1,33 @@
 // Default Engine URL if not provided by config or env
 const DEFAULT_ENGINE_URL = 'http://localhost:3001/evaluate';
+// --- Security Patterns (Local Regex) ---
+const SECURITY_PATTERNS = {
+    SQLi: [
+        /(\%27)|(\')|(\-\-)|(\%23)|(#)/i,
+        /((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))/i,
+        /\w*((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))/i,
+        /((\%27)|(\'))union/i,
+        /exec(\s|\+)+(s|x)p\w+/i,
+        /UNION(\s|\+)+SELECT/i,
+        /DROP(\s|\+)+TABLE/i,
+        /INSERT(\s|\+)+INTO/i,
+        /SELECT(\s|\+)+.+FROM/i,
+        /UPDATE(\s|\+)+.+SET/i,
+        /DELETE(\s|\+)+FROM/i
+    ],
+    XSS: [
+        /<script.*?>.*?<\/script>/is,
+        /javascript:/i,
+        /on\w+=(\"|'|%22|%27).*/i,
+        /(\%3C)|<|((\%3E)|>)/i
+    ],
+    Traversal: [
+        /(\.\.\/)+/i,
+        /(\%2e\%2e\%2f)+/i,
+        /\/etc\/passwd/i,
+        /\/windows\/win.ini/i
+    ]
+};
 export class MafaiCore {
     constructor(config = {}) {
         this.config = {
@@ -16,6 +44,16 @@ export class MafaiCore {
             console.log(`[Mafai] Using Engine URL: ${this.engineUrl}`);
         }
     }
+    analyzeRequestWithRegex(url) {
+        for (const [type, patterns] of Object.entries(SECURITY_PATTERNS)) {
+            for (const pattern of patterns) {
+                if (pattern.test(url)) {
+                    return { verdict: 'BLOCK', reason: `Pattern Match: ${type}` };
+                }
+            }
+        }
+        return { verdict: 'ALLOW', reason: null };
+    }
     /**
      * Main processing logic.
      * Framework-agnostic, Fail-open by default.
@@ -30,11 +68,40 @@ export class MafaiCore {
                 return ctx.next();
             }
             // 2. Normalize Request
-            const { method, url, headers, ip, body } = ctx.req;
-            const cleanHeaders = { ...headers }; // Basic sanitization/copy
-            // 3. GET Request Body Handling
+            const { method, url, headers, ip } = ctx.req;
+            const cleanHeaders = { ...headers };
+            // 3. GET Request Logic (Local Regex + Log Only)
             const isGet = /^(GET)$/i.test(method);
-            // 4. Construct Engine Payload
+            if (isGet) {
+                const regexResult = this.analyzeRequestWithRegex(url);
+                // Construct Log-Only Payload
+                const payload = {
+                    token: this.config.apiKey || '',
+                    logOnly: true,
+                    verdict: regexResult.verdict,
+                    reason: regexResult.reason,
+                    request: {
+                        ip,
+                        method,
+                        path: url,
+                        url,
+                        headers: cleanHeaders,
+                        body: {}
+                    }
+                };
+                // Fire and forget logging (don't wait for engine for GET performance)
+                this.sendToEngine(payload).catch(err => {
+                    if (this.config.debug)
+                        console.error('[Mafai] Failed to send log to engine:', err);
+                });
+                if (regexResult.verdict === 'BLOCK') {
+                    if (this.config.debug)
+                        console.warn(`[Mafai] Local Block (Regex): ${regexResult.reason}`);
+                    return this.blockRequest(ctx);
+                }
+                return ctx.next();
+            }
+            // 4. Construct Engine Payload (for non-GET)
             const payload = {
                 token: this.config.apiKey || '',
                 request: {
@@ -50,22 +117,8 @@ export class MafaiCore {
                 console.log('[Mafai] Sending payload to engine:', JSON.stringify(payload, null, 2));
             }
             // 5. Send to Engine with Timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased to 30s for AI Analysis
-            const response = await fetch(this.engineUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                if (this.config.debug)
-                    console.warn(`[Mafai] Engine returned ${response.status}. Failing open.`);
-                return ctx.next();
-            }
-            const decisionData = await response.json();
-            const decision = decisionData === null || decisionData === void 0 ? void 0 : decisionData.decision; // Expecting { decision: "YES" | "NO" }
+            const decisionData = await this.sendToEngine(payload);
+            const decision = decisionData === null || decisionData === void 0 ? void 0 : decisionData.decision;
             // 6. Enforce Decision
             if (decision === 'NO') {
                 if (this.config.debug)
@@ -84,6 +137,21 @@ export class MafaiCore {
             }
             return ctx.next();
         }
+    }
+    async sendToEngine(payload) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const response = await fetch(this.engineUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            throw new Error(`Engine returned ${response.status}`);
+        }
+        return await response.json();
     }
     blockRequest(ctx) {
         const html = `
