@@ -43,7 +43,7 @@ export class MafaiCore {
                     path: url,
                     url,
                     headers: cleanHeaders,
-                    body: ctx.req.body // Pass original body object, let engine handle it or JSON.stringify here
+                    body: ctx.req.body || {}
                 }
             };
             if (this.config.debug) {
@@ -51,7 +51,7 @@ export class MafaiCore {
             }
             // 5. Send to Engine with Timeout
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased to 30s for AI Analysis
             const response = await fetch(this.engineUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
