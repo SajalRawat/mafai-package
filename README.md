@@ -1,6 +1,15 @@
-# Mafai
+# MAF (Model Application Firewall)
 
-A framework-agnostic, production-ready Request Gatekeeper and Middleware for Node.js.
+A plug-and-play, framework-agnostic request gatekeeper for Node.js applications. **mafai** combines local heuristic analysis with a powerful AI-driven engine to detect and block malicious traffic (SQL Injection, XSS, Path Traversal, and more) in real-time.
+
+## Features
+
+- **🛡️ Hybrid Analysis**: 
+  - **Local Regex**: Instantly blocks common patterns (SQLi, XSS) for GET requests with zero latency penalty.
+  - **AI Engine**: Offloads complex analysis for non-GET requests (POST, PUT, etc.) to the MAF Engine.
+- **🚀 Fail-Open Design**: Built to *never* crash your application. If the security engine is unreachable or fails, the request is allowed to proceed (safe by default).
+- **🔌 Framework Agnostic**: First-class adapters for **Express**, **Fastify**, and **Next.js**.
+- **⚡ Zero Performance Impact**: GET requests are analyzed locally. Async logging ensures your traffic isn't bottlenecked.
 
 ## Installation
 
@@ -8,9 +17,9 @@ A framework-agnostic, production-ready Request Gatekeeper and Middleware for Nod
 npm install mafai
 ```
 
-## Basic Usage
+## Usage
 
-### Express Example
+### Express
 
 ```typescript
 import express from 'express';
@@ -18,25 +27,22 @@ import { mafaiExpress } from 'mafai';
 
 const app = express();
 
-app.use(express.json()); // Body parser is recommended
+app.use(express.json());
 
-// Initialize Mafai with your credentials
+// Add MAF Middleware
 app.use(mafaiExpress({
-  enabled: true,
-  apiKey: "my-sajal-secret-key", // must contain 'sajal' for now
-  modelName: "gpt-4-turbo"
+  apiKey: "YOUR_API_KEY", // Required for the MAF Engine
+  debug: true // Optional: Enable detailed logs
 }));
 
 app.get('/', (req, res) => {
-  res.send('Welcome! You have a valid key.');
+  res.send('Secure Content');
 });
 
-app.listen(3000, () => {
-  console.log('Server running on port 3000');
-});
+app.listen(3000, () => console.log('Server running on port 3000'));
 ```
 
-### Fastify Example
+### Fastify
 
 ```typescript
 import Fastify from 'fastify';
@@ -44,40 +50,59 @@ import { mafaiFastify } from 'mafai';
 
 const fastify = Fastify();
 
+// Register as a global hook
 fastify.addHook('onRequest', mafaiFastify({
-  enabled: true,
-  apiKey: "super-sajal-key",
-  modelName: "claude-3-opus"
+  apiKey: "YOUR_API_KEY",
+  enabled: true
 }));
 
 fastify.get('/', async () => {
-  return { status: 'authorized' };
+  return { status: 'secure' };
 });
 
 fastify.listen({ port: 3000 });
 ```
 
-### Next.js API Example
+### Next.js (API Routes)
+
+Wrap your API handlers with `withMafai`.
 
 ```typescript
-// pages/api/data.ts
+// pages/api/secure-data.ts
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { withMafai } from 'mafai';
 
-const handler = (req, res) => {
-  res.status(200).json({ data: 'Secret Data' });
+const handler = (req: NextApiRequest, res: NextApiResponse) => {
+  res.status(200).json({ name: 'John Doe', secret: '12345' });
 };
 
 export default withMafai(handler, {
-  apiKey: "sajal-verification-key",
-  modelName: "gemini-pro"
+  apiKey: "YOUR_API_KEY"
 });
 ```
 
 ## Configuration
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `apiKey` | `string` | **Required.** Your authentication key. Must contain "sajal" to pass. |
-| `modelName`| `string` | **Required.** Name of the model being used. |
-| `enabled` | `boolean` | Enable/Disable the middleware. Default: `true` |
-| `debug` | `boolean` | Enable debug logs. Default: `false` |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` | `string` | `undefined` | **Required**. Your MAF Engine API Key. |
+| `enabled` | `boolean` | `true` | Master switch to enable/disable the middleware. |
+| `debug` | `boolean` | `false` | Enable verbose logging for debugging decisions. |
+| `engineUrl` | `string` | `http://localhost:3001/evaluate` | URL of the MAF Decision Engine. Use this if you are self-hosting the engine. |
+
+## How It Works
+
+1.  **Incoming Request**: The middleware intercepts the request.
+2.  **GET Requests**:
+    *   Scanned locally against a highly-optimized set of Regex patterns for SQLi, XSS, and Traversal.
+    *   **Verdict**: If a match is found, the request is **BLOCKED** immediately.
+    *   **Logging**: The request metadata is asynchronously sent to the engine for telemetry (fire-and-forget).
+3.  **Other Requests (POST, PUT, DELETE, etc.)**:
+    *   Payload is constructed and sent to the **MAF Engine**.
+    *   **Verdict**: The Engine analyzes the payload and returns a decision (`ALLOW` or `BLOCK`).
+    *   If the Engine blocks, the specific blocked page is rendered.
+4.  **Fail-Safe**: If any internal error occurs (e.g., Engine timeout), MAF catches the error and calls `next()`, ensuring your app remains available.
+
+## License
+
+MIT

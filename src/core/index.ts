@@ -117,6 +117,7 @@ export class MafaiCore {
             }
 
             // 4. Construct Engine Payload (for non-GET)
+            // 4. Construct Engine Payload (for non-GET)
             const payload = {
                 token: this.config.apiKey || '',
                 request: {
@@ -124,7 +125,6 @@ export class MafaiCore {
                     method,
                     path: url,
                     url,
-                    headers: cleanHeaders,
                     body: ctx.req.body || {}
                 }
             };
